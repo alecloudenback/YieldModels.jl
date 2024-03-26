@@ -130,6 +130,7 @@ __default_optic(m::MyModel) = OptArgs([
 
 """
 __default_optic(m::Yield.Constant) = OptArgs(@optic(_.rate.value) => -1.0 .. 1.0)
+__default_optic(m::Yield.MonotoneConvex) = OptArgs(@optic(_.rates[*]) => -1.0 .. 1.0)
 __default_optic(m::Yield.IntermediateYieldCurve) = OptArgs(@optic(_.ys[end]) => 0.0 .. 1.0)
 __default_optic(m::Yield.NelsonSiegel) = OptArgs([
     @optic(_.τ₁) => 0.0 .. 100.0
@@ -222,7 +223,7 @@ The default solver is `ECA()` from Metahueristics.jl. This is a stochastic globa
 ## Defining the variables
 
 An arbitrarily complex model may be the object we intend to fit - how does `fit` know what free variables are able to be solved for within the given model?
-`variables` is a singlular or vector optic argument. What does this mean?
+`variables` is a singular or vector optic argument. What does this mean?
 - An optic (or "lens") is a way to define an accessor to a given object. Example:
 
 ```julia-repl
@@ -237,7 +238,7 @@ julia> lens(obj)
 "AA"
 ```
 An optic argument is a singular or vector of lenses with an optional range of acceptable parameters. For example, we might have a model as follows where we want 
-`fit` to optize parameters `a` and `b`:
+`fit` to optimize parameters `a` and `b`:
 
 ```julia
 struct MyModel <:FinanceModels.AbstractModel
@@ -252,7 +253,7 @@ __default_optic(m::MyModel) = OptArgs([
 ```
 In this way, fit know which arbitrary parameters in a given object may be modified. Technically, we are not modifying the immutable `MyModel`, but instead efficiently creating a new instance. This is enabled by [AccessibleOptimization.jl](https://gitlab.com/aplavin/AccessibleOptimization.jl).
 
-Note that not all opitmization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
+Note that not all optimization algorithms want a bounded interval. In that case, simply leave off the paired range. The prior example would then become:
 
 ```julia
 __default_optic(m::MyModel) = OptArgs([
@@ -265,7 +266,7 @@ __default_optic(m::MyModel) = OptArgs([
 
 ## Additional Examples
 
-See the tutorials in the package documentation for FinanceModels.jl or the docstrings of FinanceModels.jl's avaiable model types.
+See the tutorials in the package documentation for FinanceModels.jl or the docstrings of FinanceModels.jl's available model types.
 """
 function fit(mod0, quotes, method::F=Fit.Loss(x -> x^2);
     variables=__default_optic(mod0),
@@ -280,6 +281,21 @@ function fit(mod0, quotes, method::F=Fit.Loss(x -> x^2);
     return sol.uobj
 
 end
+
+function fit(mod0::Yield.MonotoneConvexUnInit, quotes, method;
+    variables=__default_optic(mod0),
+    optimizer=__default_optim(mod0)
+)
+    # use maturities as the times
+    # fit a vector of rates to the times
+    times = [maturity(q.contract) for q in quotes]
+    if !iszero(first(times))
+        pushfirst!(times, zero(eltype(times)))
+    end
+    mc = mod0(times)
+    rates = fit(mc, quotes, method)
+end
+
 
 function fit(mod0::Spline.BSpline, quotes, method::Fit.Bootstrap)
     discount_vector = [0.0]
